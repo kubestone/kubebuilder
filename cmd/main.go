@@ -17,45 +17,60 @@ limitations under the License.
 package main
 
 import (
-	"log"
-
-	"sigs.k8s.io/kubebuilder/v3/pkg/cli"
-	cfgv2 "sigs.k8s.io/kubebuilder/v3/pkg/config/v2"
-	cfgv3 "sigs.k8s.io/kubebuilder/v3/pkg/config/v3"
-	"sigs.k8s.io/kubebuilder/v3/pkg/plugin"
-	kustomizecommonv1 "sigs.k8s.io/kubebuilder/v3/pkg/plugins/common/kustomize/v1"
-	"sigs.k8s.io/kubebuilder/v3/pkg/plugins/golang"
-	declarativev1 "sigs.k8s.io/kubebuilder/v3/pkg/plugins/golang/declarative/v1"
-	golangv2 "sigs.k8s.io/kubebuilder/v3/pkg/plugins/golang/v2"
-	golangv3 "sigs.k8s.io/kubebuilder/v3/pkg/plugins/golang/v3"
+	"github.com/sirupsen/logrus"
+	"github.com/spf13/afero"
+	"sigs.k8s.io/kubebuilder/v4/pkg/cli"
+	cfgv3 "sigs.k8s.io/kubebuilder/v4/pkg/config/v3"
+	"sigs.k8s.io/kubebuilder/v4/pkg/machinery"
+	"sigs.k8s.io/kubebuilder/v4/pkg/plugin"
+	kustomizecommonv2 "sigs.k8s.io/kubebuilder/v4/pkg/plugins/common/kustomize/v2"
+	"sigs.k8s.io/kubebuilder/v4/pkg/plugins/golang"
+	deployimagev1alpha1 "sigs.k8s.io/kubebuilder/v4/pkg/plugins/golang/deploy-image/v1alpha1"
+	golangv4 "sigs.k8s.io/kubebuilder/v4/pkg/plugins/golang/v4"
+	grafanav1alpha1 "sigs.k8s.io/kubebuilder/v4/pkg/plugins/optional/grafana/v1alpha"
+	helmv1alpha1 "sigs.k8s.io/kubebuilder/v4/pkg/plugins/optional/helm/v1alpha"
 )
 
-func main() {
+func init() {
+	// Disable timestamps on the default TextFormatter
+	logrus.SetFormatter(&logrus.TextFormatter{DisableTimestamp: true})
+}
 
-	// Bundle plugin which built the golang projects scaffold by Kubebuilder go/v3
-	gov3Bundle, _ := plugin.NewBundle(golang.DefaultNameQualifier, plugin.Version{Number: 3},
-		kustomizecommonv1.Plugin{},
-		golangv3.Plugin{},
+func main() {
+	// Bundle plugin which built the golang projects scaffold with base.go/v4 and kustomize/v2 plugins
+	gov4Bundle, _ := plugin.NewBundleWithOptions(plugin.WithName(golang.DefaultNameQualifier),
+		plugin.WithVersion(plugin.Version{Number: 4}),
+		plugin.WithPlugins(kustomizecommonv2.Plugin{}, golangv4.Plugin{}),
 	)
+
+	fs := machinery.Filesystem{
+		FS: afero.NewOsFs(),
+	}
+	externalPlugins, err := cli.DiscoverExternalPlugins(fs.FS)
+	if err != nil {
+		logrus.Error(err)
+	}
 
 	c, err := cli.New(
 		cli.WithCommandName("kubebuilder"),
 		cli.WithVersion(versionString()),
 		cli.WithPlugins(
-			golangv2.Plugin{},
-			gov3Bundle,
-			&kustomizecommonv1.Plugin{},
-			&declarativev1.Plugin{},
+			golangv4.Plugin{},
+			gov4Bundle,
+			&kustomizecommonv2.Plugin{},
+			&deployimagev1alpha1.Plugin{},
+			&grafanav1alpha1.Plugin{},
+			&helmv1alpha1.Plugin{},
 		),
-		cli.WithDefaultPlugins(cfgv2.Version, golangv2.Plugin{}),
-		cli.WithDefaultPlugins(cfgv3.Version, gov3Bundle),
+		cli.WithPlugins(externalPlugins...),
+		cli.WithDefaultPlugins(cfgv3.Version, gov4Bundle),
 		cli.WithDefaultProjectVersion(cfgv3.Version),
 		cli.WithCompletion(),
 	)
 	if err != nil {
-		log.Fatal(err)
+		logrus.Fatal(err)
 	}
 	if err := c.Run(); err != nil {
-		log.Fatal(err)
+		logrus.Fatal(err)
 	}
 }
